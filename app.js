@@ -4,10 +4,8 @@ const express = require("express");
 const bodyParser = require("body-parser");
 const ejs = require("ejs");
 const mongoose = require("mongoose");
-const md5 = require("md5");
-
-
-
+const bcrypt = require("bcrypt");
+const saltRounds = 10;
 
 mongoose.connect("mongodb://0.0.0.0:27017/userDB", { useNewUrlParser: true });
 const app = express();
@@ -36,11 +34,12 @@ app.get("/register", (req, res) => {
 })
 
 app.post("/register", (req, res) => {
-    async function userRegisteration() {
+
+    bcrypt.hash(req.body.password, saltRounds, async function (err, hash) {
 
         const newUser = new User({
             email: req.body.username,
-            password: md5(req.body.password)
+            password: hash
         });
 
         await User.findOne({ email: req.body.username })
@@ -62,17 +61,14 @@ app.post("/register", (req, res) => {
                     res.send("User Already Exists");
                 }
             });
-
-
-    };
-    userRegisteration();
+    });
 
 });
 
 app.post("/login", (req, res) => {
     async function userLogin() {
 
-        const password = md5(req.body.password);
+        const password = req.body.password;
         const userName = req.body.username;
 
         await User.findOne({ email: userName })
@@ -80,11 +76,21 @@ app.post("/login", (req, res) => {
                 if (response === null) {
                     res.send("No user Account with " + userName + " address.");
                 }
-                if (response.password === password) {
-                    res.render("secrets");
-                } else {
+                else if (password === null) {
                     res.send("Wrong Password. Please refresh and try again.");
+                } else {
+                    bcrypt.compare(password, response.password, function (err, result) {
+                        if (result === true) {
+                            res.render("secrets");
+                        }
+                        else {
+                            console.log(err);
+                        }
+                    });
                 }
+
+
+
             })
             .catch(err => {
                 console.log(err);
