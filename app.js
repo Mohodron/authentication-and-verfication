@@ -3,9 +3,11 @@ require("dotenv").config();
 const express = require("express");
 const bodyParser = require("body-parser");
 const ejs = require("ejs");
+const session = require("express-session");
+const passport = require("passport");
+const passportLocalMongoose = require("passport-local-mongoose");
 const mongoose = require("mongoose");
-const bcrypt = require("bcrypt");
-const saltRounds = 10;
+
 
 mongoose.connect("mongodb://0.0.0.0:27017/userDB", { useNewUrlParser: true });
 const app = express();
@@ -14,12 +16,36 @@ app.use(express.static("public"));
 app.use(bodyParser.urlencoded({ extended: true }));
 app.set('view engine', 'ejs');
 
+app.use(session({
+    secret: "Let's keep this a secret just between two of us.",
+    resave: false,
+    saveUninitialized: false
+}));
+
+app.use(passport.initialize());
+app.use(passport.session());
+
 const userSchema = new mongoose.Schema({
     email: String,
     password: String
 });
 
+userSchema.plugin(passportLocalMongoose);
+
 const User = new mongoose.model('User', userSchema);
+
+passport.use(User.createStrategy());
+
+passport.serializeUser(function (user, done) {
+    process.nextTick(function () {
+        done(null, { id: user._id, username: user.username });
+    });
+});
+passport.deserializeUser(function (user, done) {
+    process.nextTick(function () {
+        return done(null, user);
+    });
+});
 
 app.get("/", function (req, res) {
     res.render("home");
@@ -33,72 +59,53 @@ app.get("/register", (req, res) => {
     res.render("register");
 })
 
-app.post("/register", (req, res) => {
+app.get("/secrets", (req, res) => {
+    if (req.isAuthenticated()) {
+        res.render("secrets");
+    } else {
+        res.redirect('/login');
+    }
+});
 
-    bcrypt.hash(req.body.password, saltRounds, async function (err, hash) {
-
-        const newUser = new User({
-            email: req.body.username,
-            password: hash
-        });
-
-        await User.findOne({ email: req.body.username })
-            .then(response => {
-                if (response === null) {
-                    newUser.save()
-                        .then(response => {
-                            if (response) {
-
-                                res.render("secrets");
-                            }
-                        })
-                        .catch(err => {
-                            if (err) {
-                                console.log(err);
-                            }
-                        });
-                } else {
-                    res.send("User Already Exists");
-                }
-            });
+app.get("/logout" , (req,res)=>{
+    req.logout(()=>{
+        res.redirect("/");
     });
+})
 
+app.post("/register", async (req, res) => {
+
+
+    await User.register({ username: req.body.username }, req.body.password, (err, user) => {
+        if (err) {
+            console.log(err);
+            res.redirect("/register");
+        }
+        else {
+            passport.authenticate("local")(req, res, () => {
+                res.redirect("/secrets");
+            })
+        }
+    });
 });
 
 app.post("/login", (req, res) => {
-    async function userLogin() {
 
-        const password = req.body.password;
-        const userName = req.body.username;
-
-        await User.findOne({ email: userName })
-            .then(response => {
-                if (response === null) {
-                    res.send("No user Account with " + userName + " address.");
-                }
-                else if (password === null) {
-                    res.send("Wrong Password. Please refresh and try again.");
-                } else {
-                    bcrypt.compare(password, response.password, function (err, result) {
-                        if (result === true) {
-                            res.render("secrets");
-                        }
-                        else {
-                            console.log(err);
-                        }
-                    });
-                }
-
-
-
-            })
-            .catch(err => {
-                console.log(err);
+    const user = new User({
+        email: req.body.username,
+        password: req.body.password
+    });
+    req.login(user , (err)=>{
+        if(!err){
+            passport.authenticate("local")(req,res, ()=>{
+                res.redirect("/secrets");
             });
-    };
-    userLogin();
-
-})
+        } else {
+            console.log(err);
+            res.redirect("/register");
+        }
+    })
+});
 
 
 
