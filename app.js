@@ -21,7 +21,7 @@ app.set('view engine', 'ejs');
 app.use(session({
     secret: "Let's keep this a secret just between two of us.",
     resave: false,
-    saveUninitialized: false
+    saveUninitialized: true
 }));
 
 app.use(passport.initialize());
@@ -31,7 +31,8 @@ const userSchema = new mongoose.Schema({
     email: String,
     password: String,
     googleId : String,
-    facebookId: String
+    facebookId: String,
+    secret : String
 });
 
 userSchema.plugin(passportLocalMongoose);
@@ -58,7 +59,7 @@ passport.use(new GoogleStrategy({
   },
 
   function(accessToken, refreshToken, profile, cb) {
-    console.log(profile);
+
     User.findOrCreate({ googleId: profile.id }, function (err, user) {
       return cb(err, user);
     });
@@ -91,12 +92,17 @@ app.get("/register", (req, res) => {
     res.render("register");
 })
 
-app.get("/secrets", (req, res) => {
-    if (req.isAuthenticated()) {
-        res.render("secrets");
-    } else {
-        res.redirect('/login');
-    }
+app.get("/secrets", async (req, res) => {
+    User.find({"secret" : {$ne : null}})
+    .then((response)=>{
+      res.render("secrets", {usersWithSecrets : response})
+    })
+    .catch(err=>{
+      if(err){
+        console.log(err);
+      }
+    })
+
 });
 
 app.get("/logout" , (req,res)=>{
@@ -126,20 +132,37 @@ app.get('/auth/facebook/secret',
     res.redirect("/secrets");
   });
 
+app.get("/submit", (req,res)=>{
+  if (req.isAuthenticated()) {
+    res.render("submit");
+} else {
+    res.redirect('/login');
+}
+
+});
+
+
+
 app.post("/register", async (req, res) => {
 
-
+  if(User.find({ _id: req.user})){
+    res.redirect("/login");
+  }
+  else{
     await User.register({ username: req.body.username }, req.body.password, (err, user) => {
-        if (err) {
-            console.log(err);
-            res.redirect("/register");
-        }
-        else {
-            passport.authenticate("local")(req, res, () => {
-                res.redirect("/secrets");
-            })
-        }
-    });
+      if (err) {
+          console.log(err);
+          res.redirect("/register");
+      }
+      else {
+          passport.authenticate("local")(req, res, () => {
+              res.redirect("/secrets");
+          })
+      }
+  });
+  }
+
+    
 });
 
 app.post("/login", (req, res) => {
@@ -159,6 +182,27 @@ app.post("/login", (req, res) => {
         }
     })
 });
+
+app.post("/submit", async (req,res)=>{
+  submittedSecret = req.body.secret;
+ console.log(req.user);
+  User.findById({_id : req.user})
+  .then(response =>{
+    if(response != null){
+      console.log(response);
+      response.secret = submittedSecret;
+
+      response.save();
+      res.redirect("/secrets");
+    }
+  })
+  .catch(err=>{
+    if(err){
+      console.log(err);
+    }
+  });
+ 
+ });
 
 
 
